@@ -5,45 +5,68 @@
 [![Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
 [![Test](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml/badge.svg)](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml)
 
-ChildrenOfTasks lets you pass pending work through ordinary Swift helpers while one enclosing scope owns cancellation and completion. Each `Child` preserves its operation's result and failure types.
-
-Use it when independently started work needs to travel between helpers. A direct `await` suits sequential work; `async let` remains a good fit for a fixed pair of local operations.
+ChildrenOfTasks lets one function start work that other functions can await. Pass the pending results as arguments, return them from helpers, or store them together in a struct. One enclosing `withChildren` scope owns the work and waits for every child to finish before returning.
 
 ## Quick start
 
-An export starts loading its text and title, then passes both pending results to the rendering helper. The application supplies the two loading operations and its `ReadFailure` error type.
+A profile screen needs a user's profile and recent posts. Its header and feed both use the profile, but only the feed needs the posts. Start both requests together, then let each section's helper read the results it needs.
+
+The app provides `ProfileClient`, `Profile`, and `Post` as `Sendable` types, along with `ProfileScreen` and `PostRow` presentation models. Networking and view code are omitted.
 
 ```swift
 import ChildrenOfTasks
 
-enum ReadFailure: Error {
-    case unavailable
-}
+func loadProfileScreen(userID: String, client: ProfileClient) async throws -> ProfileScreen {
+    try await withChildren { (children: borrowing Children) in
+        let load = startProfileLoad(userID: userID, client: client, in: children)
+        let header = try await makeHeader(from: load.profile)
+        let feed = try await makeFeed(from: load)
 
-func prepareExport(
-    readText: @escaping @Sendable () async throws(ReadFailure) -> String,
-    readTitle: @escaping @Sendable () async -> String
-) async throws(ReadFailure) -> String {
-    try await withChildren { (children: borrowing Children) throws(ReadFailure) in
-        let text = children.start(readText)
-        let title = children.start(readTitle)
-
-        return try await render(text, title: title)
+        return ProfileScreen(header: header, feed: feed)
     }
-}
-
-func render(
-    _ text: Child<String, ReadFailure>,
-    title: Child<String, Never>
-) async throws(ReadFailure) -> String {
-    let heading = await title.value()
-    let content = try await text.value()
-
-    return heading + "\n\n" + content
 }
 ```
 
-`start` submits work immediately to a native task group. It does not wait for a call to `value()`. The helper can choose when to observe each result without taking ownership of either producer's lifetime.
+The loading helper starts the requests and returns their handles without waiting for either result. `ProfileLoad` groups the two pending values, each with its own result type:
+
+```swift
+struct ProfileLoad: Sendable {
+    let profile: Child<Profile, any Error>
+    let posts: Child<[Post], any Error>
+}
+
+func startProfileLoad(
+    userID: String,
+    client: ProfileClient,
+    in children: borrowing Children
+) -> ProfileLoad {
+    ProfileLoad(
+        profile: children.start { try await client.fetchProfile(for: userID) },
+        posts: children.start { try await client.fetchPosts(for: userID) }
+    )
+}
+```
+
+The header can be prepared while the posts are still loading. The feed reads the same profile handle, so it gets the same result without making another profile request:
+
+```swift
+func makeHeader(from profile: Child<Profile, any Error>) async throws -> String {
+    let profile = try await profile.value()
+
+    return profile.displayName
+}
+
+func makeFeed(from load: ProfileLoad) async throws -> [PostRow] {
+    let profile = try await load.profile.value()
+    let posts = try await load.posts.value()
+
+    return posts.map { PostRow(author: profile.displayName, text: $0.text) }
+}
+```
+
+The requests belong to `loadProfileScreen`'s scope even though another function started them. If building a section throws, the error leaves the scope body, which cancels any remaining work and waits for it to finish before throwing. The helpers pass results around without taking over cleanup.
+
+For sequential work, use direct `await`. For a fixed set of operations started and consumed in one function, `async let` is often enough. A native task group suits processing homogeneous results in completion order. Use an explicitly owned unstructured task when work needs to outlive its caller.
 
 ## Installation
 
@@ -59,11 +82,15 @@ Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consu
 
 ## Working with handles
 
-`Children` is borrowed authority to start work in the current scope. A helper may borrow it and return a new handle. Keep that authority in the creating task: do not store it, capture it in another task, send it to another actor, consume it, or swap it with another scope.
+`Children` lets a helper add work to the caller's scope. In the example, `startProfileLoad` borrows it for the duration of the call and stores only the returned `Child` handles. Keep `Children` in the creating task: do not store it, capture it in another task, send it to another actor, consume it, or swap it with another scope.
 
-`Child<Value, Failure>` is copyable and `Sendable`. Pass or store a handle, share it with concurrent readers, or return it from the body. Repeated reads observe the same stored outcome without running the operation again. Returning a handle from `withChildren` waits for its producer before the caller receives it.
+`start` submits an operation to a native task group without waiting for `value()` to be called. Swift controls when it executes; calling `start` does not guarantee that execution has begun before the call returns. Each call to `start` creates a separate operation, even if you supply the same function again.
 
-Child values must be copyable and `Sendable`; reference-valued results retain their normal reference semantics. Typed failures stay typed, untyped throwing operations use `any Error`, and `Child<Value, Never>.value()` is nonthrowing. Combining unrelated errors is the caller's choice.
+`Child<Value, Failure>` is copyable and `Sendable`. Pass or store a handle, or share it with concurrent readers. Copies observe the same stored outcome without running the operation again. A handle may outlive its scope, but the operation finishes before `withChildren` returns. Returning a handle from a borrowing helper, as above, lets work continue in the caller's scope; returning it from `withChildren` delivers an already-completed outcome.
+
+The example's client methods use ordinary `throws`, so their handles use `any Error`. If the profile operation instead declares `throws(ProfileError)`, its handle is `Child<Profile, ProfileError>`. If it cannot throw, its handle is `Child<Profile, Never>` and `value()` needs no `try`. Helpers that combine unrelated error types choose their own error vocabulary or use ordinary `throws`.
+
+Child values must be copyable and `Sendable`; reference-valued results retain their normal reference semantics. Return data models from child operations and create or update UI objects on the appropriate actor.
 
 ## Completion and cancellation
 
@@ -89,7 +116,7 @@ The body inherits the caller's actor isolation and may return actor-local, non-S
 - Current validation uses Apple Swift 6.4 (`swiftlang-6.4.0.34.1`) from Xcode 27.1. iOS 16.4 compilation and linking, current macOS execution, and iOS 27 simulator execution are separate checks.
 - **Actual iOS 16.4 execution is still required before release acceptance.** Newer simulator tests do not exercise that oldest-runtime path. The Swift Testing simulator host itself requires iOS 17; a compatible minimal host or device is needed for the 16.4 check. Execution on macOS 13 has not been established.
 
-Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The compiler fixtures retain those failures as known diagnostic defects, separately from expected rejection checks. Valid-use crashes or accepted authority escapes block support for an affected compiler. `value()` is a method because an earlier typed-throwing property probe also exposed a compiler defect.
+Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
 
 ## Costs and limits
 
@@ -99,31 +126,19 @@ There is no per-child cancellation, priority API, timeout, retry, stream, or res
 
 ## Documentation and maintenance
 
-The [published DocC documentation](https://kylehughes.github.io/ChildrenOfTasks/) and [scope design](Documentation/ChildrenOfTasks.docc/ScopeLifetime.md) explain the API and its ownership boundary. Build and check with the selected Xcode toolchain:
+The [DocC documentation](https://kylehughes.github.io/ChildrenOfTasks/) covers the API. The [scope design](Documentation/ChildrenOfTasks.docc/ScopeLifetime.md) explains borrowing, result publication, and cleanup.
+
+Build and test with Xcode 27.1 selected:
 
 ```sh
 swift build
 swift test
-swift test -c release
-python3 Scripts/check-tests.py
-python3 Scripts/check-compiler.py
-bash Scripts/check-consumer.sh
 swift format lint --strict --recursive Package.swift Sources Tests Integration Benchmarks
-python3 Scripts/docs.py --output .build/site
 ```
 
-The static site uses `/ChildrenOfTasks/documentation/childrenoftasks/` as its entry point. Serve `.build/site` mounted at `/ChildrenOfTasks/` when previewing its assets and deep links. Rebuild into a fresh output directory; the docs command refuses to overwrite an existing one.
+[CI](.github/workflows/ci.yml) also checks compiler contracts, a public consumer, DocC, and iOS simulator execution. See [Actions](https://github.com/kylehughes/ChildrenOfTasks/actions) for results and [Maintenance](Documentation/Maintenance.md) for the full verification commands, local documentation preview, and publishing workflow.
 
-[CI](.github/workflows/ci.yml) runs host tests, compiler checks, a public consumer, formatting, DocC, and an owned iOS simulator, then requires every selected job to succeed. The workflows use GitHub's `xcode-27` arm64 image, select Xcode 27.1, and require the iOS 27.0 runtime. See [Actions](https://github.com/kylehughes/ChildrenOfTasks/actions) for results on each commit. Run that simulator check locally with:
-
-```sh
-python3 Scripts/Simulator/simulator.py \
-    --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 \
-    --floor 16.4 \
-    --device-type com.apple.CoreSimulator.SimDeviceType.iPhone-17
-```
-
-[Documentation deployment](.github/workflows/documentation.yml) and [release](.github/workflows/release.yml) are manually dispatched. They separate read-only builds from artifact-only publishing. Release requires an exact candidate SHA, a version, and supplied notes by default; generated notes require an explicit choice. The DocC site is published on GitHub Pages; no release has been published. See [delivery maintenance](Documentation/Maintenance.md) before dispatching either publisher.
+The DocC site is published on GitHub Pages. DocC deployments and package releases are manually dispatched; no package release has been published.
 
 ## Contributions
 
