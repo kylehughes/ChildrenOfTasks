@@ -15,13 +15,16 @@ final class Local {
 }
 @MainActor func actorBody() async -> Local {
     let local = Local()
+
     return await withChildren { c in
         local.value += 1
         let a = c.start {
             @MainActor in local.value
         }
+
         let n = await a.value()
         precondition(n == 2)
+
         return local
     }
 }

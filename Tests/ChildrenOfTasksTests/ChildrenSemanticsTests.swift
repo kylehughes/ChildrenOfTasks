@@ -8,28 +8,36 @@ struct ChildrenSemanticsTests {
             let scalar: Child<Int, Never> = forwarding(children) {
                 42
             }
+
             let structure: Child<Payload, Never> = children.start {
                 Payload(number: 7)
             }
+
             let optional: Child<Int?, Never> = children.start {
                 nil
             }
+
             let reference = ReferencePayload(9)
             let object: Child<ReferencePayload, Never> = children.start {
                 reference
             }
+
             let nothing: Child<Void, Never> = children.start {
 
             }
+
             let failure: Child<Int, FirstFailure> = children.start { () throws(FirstFailure) in
                 throw .rejected(3)
             }
+
             let unrelated: Child<String, SecondFailure> = children.start { () throws(SecondFailure) in
                 throw .stopped
             }
+
             let erased: Child<Int, any Error> = children.start { () throws in
                 throw FirstFailure.rejected(8)
             }
+
             #expect(await read(scalar) == 42)
             #expect(await structure.value() == Payload(number: 7))
             #expect(await optional.value() == nil)
@@ -38,9 +46,11 @@ struct ChildrenSemanticsTests {
             await #expect(throws: FirstFailure.rejected(3)) {
                 try await failure.value()
             }
+
             await #expect(throws: SecondFailure.stopped) {
                 try await unrelated.value()
             }
+
             await #expect(throws: FirstFailure.rejected(8)) {
                 try await erased.value()
             }
@@ -53,6 +63,7 @@ struct ChildrenSemanticsTests {
             let operation: @Sendable () async -> Int = {
                 await counter.increment()
             }
+
             let first = children.start(operation)
             let second = children.start(operation)
             let firstValue = await first.value()
@@ -61,6 +72,7 @@ struct ChildrenSemanticsTests {
             #expect(await first.value() == firstValue)
             #expect(await second.value() == secondValue)
         }
+
         #expect(await counter.count == 2)
     }
 
@@ -84,12 +96,15 @@ struct ChildrenSemanticsTests {
                         }
                     }
                 }
+
                 #expect(await entered.wait())
                 if throwBody {
                     throw .stopped
                 }
+
                 return 17
             }
+
             #expect(!throwBody)
             #expect(result == 17)
 
@@ -98,6 +113,7 @@ struct ChildrenSemanticsTests {
             #expect(throwBody)
             #expect(error == .stopped)
         }
+
         #expect(await cleaned.isSignaled)
     }
 
@@ -106,9 +122,11 @@ struct ChildrenSemanticsTests {
         let handle = await withChildren { (children: borrowing Children) in
             children.start {
                 await completed.signal()
+
                 return 23
             }
         }
+
         #expect(await completed.isSignaled)
         #expect(await handle.value() == 23)
         #expect(await handle.value() == 23)
@@ -120,25 +138,32 @@ struct ChildrenSemanticsTests {
             _ = children.start {
                 () throws(FirstFailure) -> Int in throw .rejected(1)
             }
+
             let sibling = children.start {
                 #expect(await allowSibling.wait())
                 #expect(!Task.isCancelled)
+
                 return 29
             }
+
             let caught = children.start {
                 () throws(SecondFailure) -> Int in throw .stopped
             }
+
             await #expect(throws: SecondFailure.stopped) {
                 try await caught.value()
             }
+
             await allowSibling.signal()
             #expect(await sibling.value() == 29)
         }
+
         await #expect(throws: SecondFailure.stopped) {
             try await withChildren { (children: borrowing Children) throws(SecondFailure) in
                 _ = children.start {
                     () throws(FirstFailure) -> Int in throw .rejected(2)
                 }
+
                 throw .stopped
             }
         }
@@ -150,6 +175,7 @@ struct ChildrenSemanticsTests {
                 let child = children.start {
                     () throws(FirstFailure) -> Int in throw .rejected(71)
                 }
+
                 return try await child.value()
             }
         }
@@ -172,13 +198,16 @@ struct ChildrenSemanticsTests {
                             await canceled.signal()
                         }
                     }
+
                     await finished.signal()
                     throw .rejected(73)
                 }
+
                 #expect(await entered.wait())
                 throw .stopped
             }
         }
+
         #expect(await finished.isSignaled)
     }
 
@@ -191,28 +220,35 @@ struct ChildrenSemanticsTests {
                 await ready.signal()
                 #expect(await proceed.wait())
             }
+
             return await withChildren { (children: borrowing Children) in
                 if !cancelBeforeEntry {
                     let first = children.start {
                         1
                     }
+
                     #expect(await first.value() == 1)
                     await ready.signal()
                     #expect(await proceed.wait())
                 }
+
                 let child: Child<Bool, Never> = children.start {
                     Task.isCancelled
                 }
+
                 let typed: Child<Int, FirstFailure> = children.start { () throws(FirstFailure) in
                     #expect(Task.isCancelled)
                     throw .rejected(5)
                 }
+
                 await #expect(throws: FirstFailure.rejected(5)) {
                     try await typed.value()
                 }
+
                 return await child.value()
             }
         }
+
         #expect(await ready.wait())
         parent.cancel()
         await proceed.signal()
@@ -231,6 +267,7 @@ struct ChildrenSemanticsTests {
                         #expect(await canceled.wait())
                         #expect(Task.isCancelled)
                         await cleaned.signal()
+
                         return 31
 
                     } onCancel: {
@@ -240,9 +277,11 @@ struct ChildrenSemanticsTests {
                         }
                     }
                 }
+
                 return await child.value()
             }
         }
+
         #expect(await entered.wait())
         parent.cancel()
         #expect(await parent.value == 31)
@@ -270,7 +309,9 @@ struct ChildrenSemanticsTests {
                         }
                     }
                 }
+
                 #expect(await entered.wait())
+
                 return 37
             }
 
@@ -278,6 +319,7 @@ struct ChildrenSemanticsTests {
 
             return result
         }
+
         // Cancellation is delivered during teardown while the ignored producer is still gated.
         #expect(await canceled.wait())
         await release.signal()
@@ -291,16 +333,19 @@ struct ChildrenSemanticsTests {
                 (_: borrowing Children) in 3
             } == 3
         )
+
         let result = await withChildren { (outer: borrowing Children) in
             let first = forwarding(outer) {
                 5
             }
+
             let nested = await withChildren { (inner: borrowing Children) in
                 await inner.start {
                     7
                 }
                 .value()
             }
+
             let ownScope = outer.start {
                 await withChildren {
                     (inner: borrowing Children) in
@@ -310,8 +355,10 @@ struct ChildrenSemanticsTests {
                     .value()
                 }
             }
+
             return await first.value() + nested + ownScope.value()
         }
+
         #expect(result == 23)
     }
 
@@ -324,6 +371,7 @@ struct ChildrenSemanticsTests {
                 .value()
             }
         }
+
         #expect(result == "parent")
         #expect(TestContext.label == "outside")
     }

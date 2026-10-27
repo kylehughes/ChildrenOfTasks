@@ -11,6 +11,7 @@ struct ChildResultTests {
             .map {
                 _ in TestEvent()
             }
+
         let expected: Result<Int, FirstFailure> = fails ? .failure(.rejected(61)) : .success(61)
         await withTaskGroup(of: Result<Int, FirstFailure>.self) { readers in
             for attached in attachments {
@@ -18,15 +19,18 @@ struct ChildResultTests {
                     await cell.read(signaling: attached)
                 }
             }
+
             for attached in attachments {
                 #expect(await attached.wait())
             }
+
             // Each signal occurs after production register() returned, before publication.
             await cell.publish(expected)
             for await outcome in readers {
                 #expect(outcome == expected)
             }
         }
+
         #expect(await cell.read() == expected)
     }
 
@@ -38,8 +42,10 @@ struct ChildResultTests {
         let reader = Task {
             let outcome = await cell.read(signaling: attached)
             #expect(Task.isCancelled)
+
             return outcome
         }
+
         #expect(await attached.wait())
         reader.cancel()
         await cell.publish(expected)

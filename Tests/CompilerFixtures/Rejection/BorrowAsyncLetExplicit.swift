@@ -5,6 +5,7 @@ func invalid() async {
         async let a = c.start {
             7
         }
+
         _ = await a
     }
 }

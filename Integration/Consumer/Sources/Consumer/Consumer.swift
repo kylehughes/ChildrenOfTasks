@@ -50,6 +50,7 @@ actor Counter {
             let child = children.start {
                 await self.read()
             }
+
             return await child.value()
         }
     }
@@ -61,14 +62,18 @@ actor Counter {
 
 @MainActor func mainActorBody() async -> LocalValue {
     let local = LocalValue()
+
     return await withChildren { (children: borrowing Children) in
         local.value += 1
         let child = children.start { @MainActor in
             MainActor.assertIsolated()
+
             return local.value
         }
+
         let result = await child.value()
         precondition(result == 2)
+
         return local
     }
 }
@@ -78,23 +83,28 @@ actor Counter {
         let payload = await forward {
             Payload(value: 7)
         }
+
         precondition(payload == Payload(value: 7))
         let optional: Int? = await forward {
             nil as Int?
         }
+
         precondition(optional == nil)
         let reference = await forward {
             SharedValue()
         }
+
         precondition(reference.value == 9)
         let _: Void = await forward {
         }
+
         do {
             _ = try await forward(untyped)
             preconditionFailure("Expected untyped failure")
         } catch {
             precondition(error is FirstFailure)
         }
+
         await withChildren { (children: borrowing Children) in
             let a: Child<Int, FirstFailure> = prepare(first, in: children)
             let b: Child<String, SecondFailure> = prepare(second, in: children)
@@ -104,6 +114,7 @@ actor Counter {
             } catch {
                 precondition(error == .first)
             }
+
             do throws(SecondFailure) {
                 _ = try await b.value()
                 preconditionFailure("Expected second")
@@ -111,6 +122,7 @@ actor Counter {
                 precondition(error == .second)
             }
         }
+
         let local = await mainActorBody()
         let localValue = local.value
         precondition(localValue == 2)

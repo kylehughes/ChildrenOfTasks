@@ -14,8 +14,10 @@ struct ReadersAndContextTests {
                 if fails {
                     throw .rejected(41)
                 }
+
                 return 41
             }
+
             #expect(await producerReady.wait())
             await withTaskGroup(of: Void.self) { readers in
                 for _ in 0 ..< 24 {
@@ -31,8 +33,10 @@ struct ReadersAndContextTests {
                         }
                     }
                 }
+
                 await release.signal()
             }
+
             // The completed first wave proves publication before this second wave starts.
             await withTaskGroup(of: Void.self) { readers in
                 for _ in 0 ..< 8 {
@@ -65,8 +69,10 @@ struct ReadersAndContextTests {
                 if fails {
                     throw .rejected(43)
                 }
+
                 return 43
             }
+
             #expect(await producerReady.wait())
             let reader = Task {
                 await readerReady.signal()
@@ -80,8 +86,10 @@ struct ReadersAndContextTests {
                     #expect(fails)
                     #expect(error == .rejected(43))
                 }
+
                 #expect(Task.isCancelled)
             }
+
             #expect(await readerReady.wait())
             reader.cancel()
             await release.signal()
@@ -96,11 +104,15 @@ struct ReadersAndContextTests {
             state.number += 1
             let child = children.start { @MainActor in
                 MainActor.assertIsolated()
+
                 return 47
             }
+
             state.number += await child.value()
+
             return state
         }
+
         #expect(returned === state)
         #expect(returned.number == 48)
     }
@@ -124,7 +136,9 @@ private actor ContextOwner {
             let child = children.start {
                 3
             }
+
             number += await child.value()
+
             return number
         }
     }
@@ -175,6 +189,7 @@ private func makeRetainedHandle(_ observer: WeakReference) async -> Child<Refere
         children.start {
             let reference = ReferencePayload(59)
             await observer.store(reference)
+
             return reference
         }
     }

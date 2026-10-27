@@ -8,9 +8,11 @@ func valid(_ payload: Payload) async {
         let result: Child<Payload, Never> = children.start {
             payload
         }
+
         let captured: Child<Int, Never> = children.start {
             payload.value
         }
+
         _ = await result.value()
         _ = await captured.value()
     }

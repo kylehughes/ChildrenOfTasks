@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 
-MODULES = ['ChildrenOfTasks']
+MODULE = 'ChildrenOfTasks'
 BASE_PATH = 'ChildrenOfTasks'
 
 
@@ -27,32 +27,25 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix="docc-", dir=args.output.parent))
     try:
-        archives = []
-        for module in MODULES:
-            selected = scratch / module
-            selected.mkdir()
-            matches = list(graphs.glob(module + ".symbols.json")) + list(graphs.glob(module + "@*.symbols.json"))
-            if not matches:
-                raise ValueError("No public symbol graph for " + module)
-            for path in matches:
-                shutil.copyfile(path, selected / path.name)
-            catalog = Path("Documentation/" + module + ".docc")
-            if not catalog.is_dir():
-                raise ValueError("Expected documentation catalog: " + str(catalog))
-            archive = scratch / (module + ".doccarchive")
-            subprocess.run(["xcrun", "docc", "convert", str(catalog), "--additional-symbol-graph-dir", str(selected),
-                            "--output-path", str(archive), "--hosting-base-path", BASE_PATH,
-                            "--transform-for-static-hosting", "--warnings-as-errors"], check=True, timeout=600)
-            archives.append(archive)
-        if len(archives) == 1:
-            shutil.copytree(archives[0], args.output)
-        else:
-            subprocess.run(["xcrun", "docc", "merge"] + [str(path) for path in archives]
-                           + ["--output-path", str(args.output)], check=True, timeout=600)
-        destination = "/" + BASE_PATH.strip("/") + "/documentation/" + (MODULES[0].lower() + "/" if len(MODULES) == 1 else "")
+        selected = scratch / MODULE
+        selected.mkdir()
+        matches = list(graphs.glob(MODULE + ".symbols.json")) + list(graphs.glob(MODULE + "@*.symbols.json"))
+        if not matches:
+            raise ValueError("No public symbol graph for " + MODULE)
+        for path in matches:
+            shutil.copyfile(path, selected / path.name)
+        catalog = Path("Documentation/" + MODULE + ".docc")
+        if not catalog.is_dir():
+            raise ValueError("Expected documentation catalog: " + str(catalog))
+        archive = scratch / (MODULE + ".doccarchive")
+        subprocess.run(["xcrun", "docc", "convert", str(catalog), "--additional-symbol-graph-dir", str(selected),
+                        "--output-path", str(archive), "--hosting-base-path", BASE_PATH,
+                        "--transform-for-static-hosting", "--warnings-as-errors"], check=True, timeout=600)
+        shutil.copytree(archive, args.output)
+        destination = "/" + BASE_PATH.strip("/") + "/documentation/" + MODULE.lower() + "/"
         (args.output / "index.html").write_text('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + destination + '"><a href="' + destination + '">Documentation</a>\n')
         (args.output / ".nojekyll").touch()
-        print(json.dumps({"base_path": BASE_PATH, "modules": MODULES, "output": str(args.output)}))
+        print(json.dumps({"base_path": BASE_PATH, "modules": [MODULE], "output": str(args.output)}))
     finally:
         shutil.rmtree(scratch)
 

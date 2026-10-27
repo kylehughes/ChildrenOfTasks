@@ -25,6 +25,7 @@ actor TestEvent {
         if signaled {
             return true
         }
+
         let id = nextID
         nextID += 1
         let deadline = Task {
@@ -33,11 +34,14 @@ actor TestEvent {
             } catch {
                 return
             }
+
             expire(id)
         }
+
         let observed = await withCheckedContinuation { continuation in
             waiters[id] = continuation
         }
+
         deadline.cancel()
         await deadline.value
 
@@ -54,6 +58,7 @@ actor InvocationCounter {
 
     func increment() -> Int {
         count += 1
+
         return count
     }
 }

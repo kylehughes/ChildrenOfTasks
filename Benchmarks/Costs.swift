@@ -110,6 +110,7 @@ func packageWorkload(_ workload: String, count: Int) async -> Observation {
                         index
                     }
                     .value()
+
                 if index == count / 2 {
                     memory["mid-scope"] = memorySnapshot()
                 }
@@ -223,6 +224,7 @@ func baselineWorkload(_ workload: String, count: Int) async -> Observation {
                         index
                     }
                     .value()
+
                 if index == count / 2 {
                     memory["mid-scope"] = memorySnapshot()
                 }
@@ -319,6 +321,7 @@ struct Sample: Codable {
                 backend == "package"
                 ? await packageWorkload(workload, count: count)
                 : await baselineWorkload(workload, count: count)
+
             let duration = start.duration(to: .now).components
             let milliseconds = Double(duration.seconds) * 1_000 + Double(duration.attoseconds) / 1e15
             let expected =
@@ -331,6 +334,7 @@ struct Sample: Codable {
                         }
 
                     : count * (count - 1) / 2
+
             precondition(observation.checksum == expected)
             if iteration > 0 {
                 output.append(Sample(milliseconds: milliseconds, observation: observation))

@@ -10,9 +10,11 @@ func valid(_ receiver: Receiver) async {
         let child = children.start {
             7
         }
+
         let task = Task {
             await child.value()
         }
+
         async let value = child.value()
         _ = await task.value
         _ = await value

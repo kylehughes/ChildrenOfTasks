@@ -7,9 +7,11 @@ func valid() async {
         var first = outer.start {
             1
         }
+
         var second = outer.start {
             2
         }
+
         swap(&first, &second)
         first = second
         consume(first)

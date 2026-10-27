@@ -5,6 +5,7 @@ func invalid() async {
         let child: Child<String, Never> = children.start {
             7
         }
+
         _ = child
     }
 }

@@ -7,6 +7,7 @@ func invalid() async {
                 7
             }
         }
+
         await t.value
     }
 }

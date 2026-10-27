@@ -11,6 +11,7 @@ func valid() async throws(Failure) -> Int {
         let child: Child<Payload, Failure> = children.start {
             () throws(Failure) in Payload(value: 7)
         }
+
         return try await child.value().value
     }
 }
