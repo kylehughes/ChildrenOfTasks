@@ -5,11 +5,13 @@
 [![Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
 [![Test](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml/badge.svg)](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml)
 
-ChildrenOfTasks lets helpers return pending work while the caller keeps structured ownership of its lifetime. Pass typed result handles between functions, and let one enclosing `withChildren` scope cancel and wait for every child before returning—even when a helper throws.
+ChildrenOfTasks lets helpers return unfinished work while one enclosing scope handles cancellation and cleanup. Pass typed `Child` handles between functions; every child finishes before `withChildren` returns.
+
+`Task` handles also let you pass pending results between functions. Tasks created with `Task { … }` are unstructured, though: keeping them within the caller's lifetime requires explicit cancellation forwarding and a cleanup path that cancels and awaits every task on exit. `withChildren` takes care of those responsibilities for native child tasks, including when its body throws.
 
 ## Quick start
 
-A profile screen needs a user's profile for its header and recent posts for its feed. A loading helper starts both requests and returns immediately. Separate presentation helpers await the data they need, while `loadProfileScreen` owns the requests until they finish.
+A profile screen needs a user's profile for its header and recent posts for its feed. A loading helper starts both requests, and separate presentation helpers await the data they need. If the profile request fails, `loadProfileScreen` still needs to cancel and wait for the posts request before throwing.
 
 The app provides `ProfileClient`, `Profile`, and `Post` as `Sendable` types, along with `ProfileScreen` and `PostRow` presentation models. Networking and view code are omitted.
 
@@ -63,15 +65,13 @@ func makeFeed(from posts: Child<[Post], any Error>) async throws -> [PostRow] {
 }
 ```
 
-If the profile request fails while posts are still loading, the error leaves the scope body. `withChildren` requests cancellation of the posts request and waits for it to finish before throwing the original error. Canceling the task that called `loadProfileScreen` also reaches both requests through native structured cancellation.
-
-The loading helper can return unfinished work without making its caller write a cleanup path for each result.
+`makeHeader` and `makeFeed` receive access to results, with no authority to cancel the requests. If either helper throws, `withChildren` cancels remaining work, waits for it to finish, then throws that error. The caller does not need a separate cleanup path for each request.
 
 ### Using native Swift
 
 When a fixed set of operations starts and finishes in one function, `async let` already provides structured lifetime management. Use it when the work can stay local. A native task group is useful for a dynamic set of operations, including processing results of one type in completion order.
 
-Returning pending results from a helper is also possible with `Task` handles. Those tasks are unstructured: the caller must forward cancellation and cancel and await each task on every exit to keep their work within the call's lifetime.
+The same profile-loading flow can use `Task` handles, with cancellation forwarding and exit cleanup written explicitly. Each new task needs to be included in both paths.
 
 <details>
 <summary>The same profile-loading flow with Task handles</summary>
@@ -129,7 +129,7 @@ The cancellation handler forwards cancellation while the body is running. The `d
 
 </details>
 
-ChildrenOfTasks keeps that cancellation and joining in `withChildren`, using native child tasks. Helpers can start work or consume handles without taking over its lifetime. Both approaches rely on cooperative cancellation: an operation that ignores cancellation must still finish before the enclosing call can return.
+Both versions rely on cooperative cancellation: an operation that ignores cancellation must still finish before the enclosing call can return.
 
 ## Installation
 
