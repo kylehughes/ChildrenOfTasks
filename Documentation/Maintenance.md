@@ -22,9 +22,9 @@ xcrun simctl list runtimes
 
 ## Runtime validation
 
-The library declares iOS 16.4 and macOS 13 deployment targets. Current validation uses Apple Swift 6.4 (`swiftlang-6.4.0.34.1`) from Xcode 27.1. Checks cover iOS 16.4 compilation and linking, current macOS execution, and iOS 27 simulator execution. The available SDK, host OS, and simulator runtime are separate support facts.
+The library declares iOS 16.4 and macOS 13 deployment targets. Verify compilation and linking separately from runtime execution. Record the source revision, toolchain, executable identity, runtime version, destination, and results for each runtime check.
 
-Actual iOS 16.4 execution is still required before release acceptance. Newer simulator tests do not exercise that oldest-runtime path. The Swift Testing simulator host requires iOS 17, so the 16.4 check needs a compatible minimal host or device. Execution on macOS 13 has not been established.
+The Swift Testing simulator host requires iOS 17. Exercising iOS 16.4 requires a compatible minimal host or device; running tests on a newer simulator does not establish behavior on that oldest-runtime path.
 
 ## Verification
 
@@ -70,7 +70,7 @@ The build job uses read-only repository permissions and uploads `documentation-s
 
 The [Release workflow](../.github/workflows/release.yml) is manual. It publishes a source archive, not prebuilt library binaries. Select the repository's default branch as the workflow source ref. Its exact dispatch commit must already contain the intended source, tests, documentation, and workflow; uncommitted local files cannot be released.
 
-Before publishing, complete the outstanding iOS 16.4 runtime validation and record its source and executable identities. The prepared workflow does not collect that oldest-runtime evidence. Select the release version and license policy separately.
+Before publishing, record verification results for the exact candidate, including the runtimes exercised and any explicitly accepted validation gaps. The prepared workflow runs iOS 27 simulator tests; it does not collect oldest-runtime evidence. Confirm the release version and license policy.
 
 The dispatch inputs are:
 

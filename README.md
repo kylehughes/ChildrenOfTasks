@@ -133,12 +133,12 @@ Both versions rely on cooperative cancellation: an operation that ignores cancel
 
 ## Installation
 
-In Xcode, add `https://github.com/kylehughes/ChildrenOfTasks` with the **Branch** dependency rule set to `main`, then select the **ChildrenOfTasks** product.
+In Xcode, add `https://github.com/kylehughes/ChildrenOfTasks` with the **Up to Next Major Version** dependency rule starting at `1.0.0`, then select the **ChildrenOfTasks** product.
 
 In `Package.swift`, add the dependency:
 
 ```swift
-.package(url: "https://github.com/kylehughes/ChildrenOfTasks.git", branch: "main")
+.package(url: "https://github.com/kylehughes/ChildrenOfTasks.git", from: "1.0.0")
 ```
 
 Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies, then `import ChildrenOfTasks`. The package has no external dependencies.
@@ -221,3 +221,7 @@ ChildrenOfTasks was developed and reviewed with coding agents using the Swift Pa
 [![Bluesky](https://img.shields.io/badge/Bluesky-0285FF?logo=bluesky&logoColor=fff)](https://bsky.app/profile/kylehugh.es)<br>
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=fff)](https://www.linkedin.com/in/kyle-hughes)<br>
 [![Mastodon](https://img.shields.io/mastodon/follow/109356914477272810?domain=https%3A%2F%2Fmister.computer&style=social)](https://mister.computer/@kyle)
+
+## License
+
+ChildrenOfTasks is available under the [MIT License](LICENSE).
