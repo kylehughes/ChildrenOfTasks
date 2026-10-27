@@ -67,7 +67,7 @@ If the profile request fails while posts are still loading, the error leaves the
 
 The loading helper can return unfinished work without making its caller write a cleanup path for each result.
 
-## Using native Swift
+### Using native Swift
 
 When a fixed set of operations starts and finishes in one function, `async let` already provides structured lifetime management. Use it when the work can stay local. A native task group is useful for a dynamic set of operations, including processing results of one type in completion order.
 
@@ -143,7 +143,17 @@ In `Package.swift`, add the dependency:
 
 Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies, then `import ChildrenOfTasks`. The package has no external dependencies.
 
-## Working with handles
+### Compatibility
+
+- Requires Swift 6.4 or later. The package uses Swift 6 language mode and complete strict concurrency checking.
+- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation](Documentation/Maintenance.md#runtime-validation) for the environments exercised.
+- Uses nonisolated default actor isolation without upcoming or experimental feature flags. It can be consumed by apps that use MainActor default isolation.
+
+Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
+
+## Usage
+
+### Working with handles
 
 `Children` lets a helper add work to the caller's scope. In the example, `startProfileLoad` borrows it for the duration of the call and stores only the returned `Child` handles. Keep `Children` in the creating task: do not store it, capture it in another task, send it to another actor, consume it, or swap it with another scope.
 
@@ -153,9 +163,7 @@ Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consu
 
 The example's client methods use ordinary `throws`, so their handles use `any Error`. If the profile operation instead declares `throws(ProfileError)`, its handle is `Child<Profile, ProfileError>`. If it cannot throw, its handle is `Child<Profile, Never>` and `value()` needs no `try`. Helpers that combine unrelated error types choose their own error vocabulary or use ordinary `throws`.
 
-Child values must be copyable and `Sendable`; reference-valued results retain their normal reference semantics. Return data models from child operations and create or update UI objects on the appropriate actor.
-
-## Completion and cancellation
+### Completion and cancellation
 
 The body's outcome determines the scope's outcome. When the body returns or throws, `withChildren` cancels remaining work and joins every child before returning that value or error. A caught or ignored child failure does not fail the scope or cancel siblings.
 
@@ -170,17 +178,13 @@ The body's outcome determines the scope's outcome. When the body returns or thro
 
 Cancellation is cooperative. A body or child that never finishes can prevent the scope from returning. A published result means the supplied operation has returned or thrown; only scope exit establishes that every wrapping task has been joined.
 
+### Actor isolation
+
+Child values must be copyable and `Sendable`; reference-valued results retain their normal reference semantics. Return data models from child operations and create or update UI objects on the appropriate actor.
+
 The body inherits the caller's actor isolation and may return actor-local, non-Sendable state. Child operations cross a task boundary and accept escaping `@Sendable` closures. Explicit actor-isolated operations retain their isolation; arbitrary child closure literals are not promised to inherit the caller's actor context.
 
-## Compatibility
-
-- Requires Swift 6.4 or later. The package uses Swift 6 language mode and complete strict concurrency checking.
-- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation](Documentation/Maintenance.md#runtime-validation) for the environments exercised.
-- Uses nonisolated default actor isolation without upcoming or experimental feature flags. It can be consumed by apps that use MainActor default isolation.
-
-Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
-
-## Costs and limits
+### Costs and limits
 
 Each scope creates group storage; each child adds a native task and actor-backed result cell. Suspended readers use continuations, and handles retain completed outcomes. Task-group completion records can accumulate until scope exit, so use a scope for a bounded operation rather than an indefinitely running spawning service.
 
@@ -189,6 +193,8 @@ The API covers starting children and reading their results. It does not include 
 ## Documentation and maintenance
 
 The [DocC documentation](https://kylehughes.github.io/ChildrenOfTasks/) covers the API. The [scope design](Documentation/ChildrenOfTasks.docc/ScopeLifetime.md) explains borrowing, result publication, and cleanup.
+
+### Building and testing
 
 Build and test with Xcode 27.1 selected:
 
