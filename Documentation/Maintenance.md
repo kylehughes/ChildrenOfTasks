@@ -1,6 +1,6 @@
 # Maintenance
 
-Run verification from the repository root with Xcode 27.1 selected. The workflows target the private `kylehughes/ChildrenOfTasks` repository. Pages and releases require separate publication decisions.
+Run verification from the repository root with Xcode 27.1 selected. The workflows target the private `kylehughes/ChildrenOfTasks` repository. The [DocC site](https://kylehughes.github.io/ChildrenOfTasks/) is public; releases require a separate publication decision.
 
 ## Runner and local tools
 

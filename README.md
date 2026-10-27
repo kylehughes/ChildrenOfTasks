@@ -99,7 +99,7 @@ There is no per-child cancellation, priority API, timeout, retry, stream, or res
 
 ## Documentation and maintenance
 
-The [DocC overview](Documentation/ChildrenOfTasks.docc/ChildrenOfTasks.md) and [scope design](Documentation/ChildrenOfTasks.docc/ScopeLifetime.md) explain the API and its ownership boundary. Build and check with the selected Xcode toolchain:
+The [published DocC documentation](https://kylehughes.github.io/ChildrenOfTasks/) and [scope design](Documentation/ChildrenOfTasks.docc/ScopeLifetime.md) explain the API and its ownership boundary. Build and check with the selected Xcode toolchain:
 
 ```sh
 swift build
@@ -123,7 +123,7 @@ python3 Scripts/Simulator/simulator.py \
     --device-type com.apple.CoreSimulator.SimDeviceType.iPhone-17
 ```
 
-[Documentation deployment](.github/workflows/documentation.yml) and [release](.github/workflows/release.yml) are manually dispatched. They separate read-only builds from artifact-only publishing. Release requires an exact candidate SHA, a version, and supplied notes by default; generated notes require an explicit choice. No hosted documentation site or release has been published. See [delivery maintenance](Documentation/Maintenance.md) before dispatching either publisher.
+[Documentation deployment](.github/workflows/documentation.yml) and [release](.github/workflows/release.yml) are manually dispatched. They separate read-only builds from artifact-only publishing. Release requires an exact candidate SHA, a version, and supplied notes by default; generated notes require an explicit choice. The DocC site is published on GitHub Pages; no release has been published. See [delivery maintenance](Documentation/Maintenance.md) before dispatching either publisher.
 
 ## Contributions
 
