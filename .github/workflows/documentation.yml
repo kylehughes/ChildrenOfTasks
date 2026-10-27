@@ -1,0 +1,50 @@
+# Requires a provisioned xcode-27 runner with Xcode 27.1.0; hosted availability is not established by this file.
+name: Documentation
+'on':
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: documentation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      timeout-minutes: 5
+      with:
+        persist-credentials: false
+    - name: Select and observe Swift 6.4
+      run: |-
+        sudo xcode-select -s /Applications/Xcode-27.1.0.app/Contents/Developer
+        swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+        grep -E 'Swift version 6\.4([ .]|$)' "$RUNNER_TEMP/swift-version.txt"
+      timeout-minutes: 15
+      shell: bash
+    - name: Static DocC
+      run: python3 Scripts/docs.py --output .build/site
+      timeout-minutes: 15
+    - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+      timeout-minutes: 5
+      with:
+        name: documentation-site
+        path: .build/site
+  deploy:
+    needs:
+    - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1
+      timeout-minutes: 5
+      id: deployment
+      with:
+        artifact_name: documentation-site

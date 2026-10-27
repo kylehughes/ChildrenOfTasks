@@ -1,0 +1,116 @@
+# Requires a provisioned xcode-27 runner with Xcode 27.1.0; hosted availability is not established by this file.
+name: CI
+'on':
+  pull_request: {}
+  push: {}
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      timeout-minutes: 5
+      with:
+        persist-credentials: false
+    - name: Select and observe Swift 6.4
+      run: |-
+        sudo xcode-select -s /Applications/Xcode-27.1.0.app/Contents/Developer
+        swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+        grep -E 'Swift version 6\.4([ .]|$)' "$RUNNER_TEMP/swift-version.txt"
+      timeout-minutes: 15
+      shell: bash
+    - name: Build
+      run: swift build
+      timeout-minutes: 15
+    - name: Test selected cases
+      run: python3 Scripts/check-tests.py
+      timeout-minutes: 15
+    - name: Compiler contract fixtures
+      run: python3 Scripts/check-compiler.py
+      timeout-minutes: 15
+    - name: Public package consumer
+      run: bash Scripts/check-consumer.sh
+      timeout-minutes: 15
+    - name: Strict format
+      run: swift format lint --strict --recursive Package.swift Sources Tests Integration Benchmarks
+      timeout-minutes: 15
+    - name: Static DocC
+      run: python3 Scripts/docs.py --output .build/site
+      timeout-minutes: 15
+    - name: Preserve test observations
+      if: ${{ always() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      timeout-minutes: 5
+      with:
+        name: host-tests-${{ github.sha }}
+        path: |
+          .build/test-observations-*/
+          .build/simulator-*/
+        include-hidden-files: true
+        if-no-files-found: error
+        retention-days: 7
+  simulator:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      timeout-minutes: 5
+      with:
+        persist-credentials: false
+    - name: Select and observe Swift 6.4
+      run: |-
+        sudo xcode-select -s /Applications/Xcode-27.1.0.app/Contents/Developer
+        swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+        grep -E 'Swift version 6\.4([ .]|$)' "$RUNNER_TEMP/swift-version.txt"
+      timeout-minutes: 15
+      shell: bash
+    - name: Actual Simulator tests
+      run: python3 Scripts/Simulator/simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 --floor 16.4 --device-type
+        com.apple.CoreSimulator.SimDeviceType.iPhone-17
+      timeout-minutes: 15
+    - name: Preserve test observations
+      if: ${{ always() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      timeout-minutes: 5
+      with:
+        name: simulator-tests-${{ github.sha }}
+        path: |
+          .build/test-observations-*/
+          .build/simulator-*/
+        include-hidden-files: true
+        if-no-files-found: error
+        retention-days: 7
+  gate:
+    name: Required checks
+    if: ${{ always() }}
+    needs:
+    - checks
+    - simulator
+    runs-on: xcode-27
+    timeout-minutes: 5
+    steps:
+    - name: Validate
+      shell: bash
+      timeout-minutes: 15
+      run: |
+        python3 -I - <<'PY'
+        import json
+        import os
+
+        expected = json.loads(os.environ["EXPECTED_JOBS"])
+        observed = json.loads(os.environ["JOB_RESULTS"])
+        if not expected or len(expected) != len(set(expected)) or set(observed) != set(expected):
+            raise SystemExit("Missing or unexpected required jobs")
+        if any(not isinstance(observed[name], dict) or observed[name].get("result") != "success" for name in expected):
+            raise SystemExit("Every required job must finish successfully")
+        print("All selected checks succeeded")
+        PY
+      env:
+        EXPECTED_JOBS: '["checks", "simulator"]'
+        JOB_RESULTS: ${{ toJSON(needs) }}

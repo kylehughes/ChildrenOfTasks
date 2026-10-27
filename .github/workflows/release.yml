@@ -1,0 +1,440 @@
+# Requires a provisioned xcode-27 runner with Xcode 27.1.0; hosted availability is not established by this file.
+name: Release
+'on':
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Exact 40-character default-branch dispatch commit
+        required: true
+        type: string
+      version:
+        description: Semantic version without v
+        required: true
+        type: string
+      notes:
+        description: Release notes (required unless generated notes selected)
+        type: string
+        default: ''
+      generated_notes:
+        description: Explicitly request generated release notes
+        type: boolean
+        default: false
+      publish:
+        description: Explicitly publish verified artifact
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+    - name: Validate
+      shell: bash
+      timeout-minutes: 15
+      run: |
+        python3 -I - <<'PY'
+        # This source is embedded inline into the workflow; never executed from an artifact.
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+
+        class Unknown(RuntimeError):
+            pass
+
+
+        def validate_inputs(version, candidate, dispatch, notes, generated):
+            if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", version):
+                raise ValueError("Version must be semantic major.minor.patch with optional prerelease")
+            if not re.fullmatch(r"[0-9a-f]{40}", candidate) or candidate != dispatch:
+                raise ValueError("Candidate must be the exact dispatch commit")
+            if not notes.strip() and not generated:
+                raise ValueError("Release notes are required unless generated notes are explicitly selected")
+            without_build = version.split("+", 1)[0]
+            prerelease = without_build.split("-", 1)[1] if "-" in without_build else ""
+            if any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in prerelease.split(".")):
+                raise ValueError("Numeric prerelease identifiers cannot have leading zeros")
+            return "v" + version
+
+
+        def check_conflicts(api, tag):
+            if api("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""), missing=True) is not None:
+                raise ValueError("Tag already exists")
+            # The list includes drafts when authenticated. Exhaust pagination; never
+            # treat a partial release page or an API failure as absence.
+            page = 1
+            while True:
+                releases = api("GET", f"/releases?per_page=100&page={page}")
+                if not isinstance(releases, list):
+                    raise Unknown("Release listing is unobservable")
+                if any(item.get("tag_name") == tag for item in releases):
+                    raise ValueError("Draft or published release already exists")
+                if len(releases) < 100:
+                    break
+                page += 1
+                if page > 100:
+                    raise Unknown("Release listing exceeds inspection bound")
+
+
+        class API:
+            def __init__(self, repository, token):
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+                    raise ValueError("Invalid repository")
+                self.base = "https://api.github.com/repos/" + repository
+                self.token = token
+
+            def __call__(self, method, path, body=None, *, missing=False, upload=False):
+                url = ("https://uploads.github.com" + self.base.removeprefix("https://api.github.com") if upload else self.base) + path
+                data = body if isinstance(body, bytes) else json.dumps(body).encode() if body is not None else None
+                request = urllib.request.Request(url, data=data, method=method, headers={
+                    "Authorization": "Bearer " + self.token, "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/octet-stream" if upload else "application/json"})
+                class NoRedirect(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, *args, **kwargs):
+                        raise Unknown("Unexpected API redirect")
+                try:
+                    with urllib.request.build_opener(NoRedirect()).open(request, timeout=60) as response:
+                        return json.load(response)
+                except urllib.error.HTTPError as error:
+                    if missing and error.code == 404:
+                        return None
+                    raise Unknown(f"API {method} response {error.code}; inspect before another write") from error
+                except (OSError, ValueError) as error:
+                    raise Unknown(f"API {method} outcome unknown; inspect before another write") from error
+
+
+        def inspect_candidate(api, candidate, ref, workflow):
+            repo = api("GET", "")
+            if ref != "refs/heads/" + repo["default_branch"] or workflow != candidate:
+                raise ValueError("Dispatch workflow and candidate must be the same default-branch commit")
+            if api("GET", "/commits/" + candidate).get("sha") != candidate:
+                raise ValueError("Candidate did not resolve exactly")
+
+
+        def publish(api, *, tag, candidate, notes, generated, archive, expected_digest):
+            payload = archive.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_digest) or digest != expected_digest:
+                raise ValueError("Artifact bytes differ from read-only build output")
+            check_conflicts(api, tag)
+            # Retained job logs identify intent before the first write. Never retry a
+            # write automatically: inspect the remote and stop on an unknown outcome.
+            print(json.dumps({"tag": tag, "candidate": candidate, "asset": archive.name, "sha256": digest}), flush=True)
+            body = {"tag_name": tag, "target_commitish": candidate, "name": tag,
+                    "body": notes, "draft": True, "generate_release_notes": generated}
+            try:
+                release = api("POST", "/releases", body)
+            except Unknown:
+                releases = api("GET", "/releases?per_page=100")
+                matches = [r for r in releases if r.get("tag_name") == tag]
+                print(json.dumps({"inspection": matches}), flush=True)
+                raise Unknown("Release creation response uncertain; inspect retained state before another write")
+            release_id = release["id"]
+            if release.get("tag_name") != tag or not release.get("draft") or release.get("target_commitish") != candidate:
+                raise Unknown("Created release identity mismatch; inspect before another write")
+            try:
+                asset = api("POST", f"/releases/{release_id}/assets?name=" + urllib.parse.quote(archive.name), payload, upload=True)
+            except Unknown:
+                print(json.dumps({"inspection": api("GET", f"/releases/{release_id}/assets")}), flush=True)
+                raise Unknown("Asset upload uncertain; inspect before another write")
+            # GitHub's server digest verifies received bytes without following a
+            # redirect carrying write credentials or executing/extracting archive data.
+            if asset.get("name") != archive.name or asset.get("size") != len(payload) or asset.get("digest") != "sha256:" + digest:
+                raise Unknown("Uploaded asset identity unverified; inspect before another write")
+            try:
+                result = api("PATCH", f"/releases/{release_id}", {"draft": False})
+            except Unknown:
+                result = api("GET", f"/releases/{release_id}")
+                if result.get("draft") is not False or result.get("tag_name") != tag:
+                    raise Unknown("Publication remains unknown; stop and inspect")
+            remote_tag = api("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""))
+            if (result.get("draft") is not False or result.get("tag_name") != tag
+                    or remote_tag.get("object", {}).get("sha") != candidate):
+                raise Unknown("Published release/tag identity is unverified")
+            print(json.dumps({"release": result["html_url"], "asset_sha256": digest}), flush=True)
+
+
+        def main():
+            candidate = os.environ["CANDIDATE"]
+            notes = os.environ["NOTES"]
+            generated = os.environ["GENERATED"] == "true"
+            tag = validate_inputs(os.environ["VERSION"], candidate, os.environ["DISPATCH_SHA"], notes, generated)
+            if os.environ["GITHUB_REPOSITORY"] != os.environ["EXPECTED_REPOSITORY"]:
+                raise ValueError("Release destination differs from the selected repository")
+            api = API(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
+            inspect_candidate(api, candidate, os.environ["DISPATCH_REF"], os.environ["WORKFLOW_SHA"])
+            if os.environ["OPERATION"] == "validate":
+                check_conflicts(api, tag)
+            else:
+                publish(api, tag=tag, candidate=candidate, notes=notes, generated=generated,
+                        archive=Path("release/source.tar.gz"), expected_digest=os.environ["ARCHIVE_SHA256"])
+
+
+        if __name__ == "__main__":
+            main()
+        PY
+      env:
+        CANDIDATE: ${{ inputs.candidate }}
+        VERSION: ${{ inputs.version }}
+        NOTES: ${{ inputs.notes }}
+        GENERATED: ${{ inputs.generated_notes }}
+        DISPATCH_SHA: ${{ github.sha }}
+        DISPATCH_REF: ${{ github.ref }}
+        WORKFLOW_SHA: ${{ github.workflow_sha }}
+        GH_TOKEN: ${{ github.token }}
+        EXPECTED_REPOSITORY: kylehughes/ChildrenOfTasks
+        OPERATION: validate
+  build:
+    needs:
+    - validate
+    runs-on: xcode-27
+    timeout-minutes: 30
+    outputs:
+      archive_sha256: ${{ steps.archive.outputs.sha256 }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      timeout-minutes: 5
+      with:
+        persist-credentials: false
+        ref: ${{ inputs.candidate }}
+    - name: Select and observe Swift 6.4
+      run: |-
+        sudo xcode-select -s /Applications/Xcode-27.1.0.app/Contents/Developer
+        swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+        grep -E 'Swift version 6\.4([ .]|$)' "$RUNNER_TEMP/swift-version.txt"
+      timeout-minutes: 15
+      shell: bash
+    - name: Build
+      run: swift build
+      timeout-minutes: 15
+    - name: Test selected cases
+      run: python3 Scripts/check-tests.py
+      timeout-minutes: 15
+    - name: Compiler contract fixtures
+      run: python3 Scripts/check-compiler.py
+      timeout-minutes: 15
+    - name: Public package consumer
+      run: bash Scripts/check-consumer.sh
+      timeout-minutes: 15
+    - name: Strict format
+      run: swift format lint --strict --recursive Package.swift Sources Tests Integration Benchmarks
+      timeout-minutes: 15
+    - name: Static DocC
+      run: python3 Scripts/docs.py --output .build/site
+      timeout-minutes: 15
+    - name: Actual Simulator tests
+      run: python3 Scripts/Simulator/simulator.py --runtime com.apple.CoreSimulator.SimRuntime.iOS-27-0 --floor 16.4 --device-type
+        com.apple.CoreSimulator.SimDeviceType.iPhone-17
+      timeout-minutes: 15
+    - name: Archive exact candidate
+      shell: bash
+      timeout-minutes: 15
+      run: |
+        python3 -I - <<'PY'
+        import hashlib, os, pathlib, subprocess
+        candidate = os.environ["CANDIDATE"]
+        if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != candidate:
+            raise SystemExit("Checkout candidate mismatch")
+        path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "source.tar.gz"
+        subprocess.run(["git", "archive", "--format=tar.gz", "--output=" + str(path), candidate], check=True, timeout=120)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write("sha256=" + digest + "\n")
+        PY
+      id: archive
+      env:
+        CANDIDATE: ${{ inputs.candidate }}
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      timeout-minutes: 5
+      with:
+        name: release-${{ inputs.candidate }}
+        path: ${{ runner.temp }}/source.tar.gz
+        if-no-files-found: error
+        retention-days: 7
+  publish:
+    needs:
+    - validate
+    - build
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+      timeout-minutes: 5
+      with:
+        name: release-${{ inputs.candidate }}
+        path: release
+    - name: Validate
+      shell: bash
+      timeout-minutes: 15
+      run: |
+        python3 -I - <<'PY'
+        # This source is embedded inline into the workflow; never executed from an artifact.
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+
+
+        class Unknown(RuntimeError):
+            pass
+
+
+        def validate_inputs(version, candidate, dispatch, notes, generated):
+            if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", version):
+                raise ValueError("Version must be semantic major.minor.patch with optional prerelease")
+            if not re.fullmatch(r"[0-9a-f]{40}", candidate) or candidate != dispatch:
+                raise ValueError("Candidate must be the exact dispatch commit")
+            if not notes.strip() and not generated:
+                raise ValueError("Release notes are required unless generated notes are explicitly selected")
+            without_build = version.split("+", 1)[0]
+            prerelease = without_build.split("-", 1)[1] if "-" in without_build else ""
+            if any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in prerelease.split(".")):
+                raise ValueError("Numeric prerelease identifiers cannot have leading zeros")
+            return "v" + version
+
+
+        def check_conflicts(api, tag):
+            if api("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""), missing=True) is not None:
+                raise ValueError("Tag already exists")
+            # The list includes drafts when authenticated. Exhaust pagination; never
+            # treat a partial release page or an API failure as absence.
+            page = 1
+            while True:
+                releases = api("GET", f"/releases?per_page=100&page={page}")
+                if not isinstance(releases, list):
+                    raise Unknown("Release listing is unobservable")
+                if any(item.get("tag_name") == tag for item in releases):
+                    raise ValueError("Draft or published release already exists")
+                if len(releases) < 100:
+                    break
+                page += 1
+                if page > 100:
+                    raise Unknown("Release listing exceeds inspection bound")
+
+
+        class API:
+            def __init__(self, repository, token):
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+                    raise ValueError("Invalid repository")
+                self.base = "https://api.github.com/repos/" + repository
+                self.token = token
+
+            def __call__(self, method, path, body=None, *, missing=False, upload=False):
+                url = ("https://uploads.github.com" + self.base.removeprefix("https://api.github.com") if upload else self.base) + path
+                data = body if isinstance(body, bytes) else json.dumps(body).encode() if body is not None else None
+                request = urllib.request.Request(url, data=data, method=method, headers={
+                    "Authorization": "Bearer " + self.token, "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/octet-stream" if upload else "application/json"})
+                class NoRedirect(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, *args, **kwargs):
+                        raise Unknown("Unexpected API redirect")
+                try:
+                    with urllib.request.build_opener(NoRedirect()).open(request, timeout=60) as response:
+                        return json.load(response)
+                except urllib.error.HTTPError as error:
+                    if missing and error.code == 404:
+                        return None
+                    raise Unknown(f"API {method} response {error.code}; inspect before another write") from error
+                except (OSError, ValueError) as error:
+                    raise Unknown(f"API {method} outcome unknown; inspect before another write") from error
+
+
+        def inspect_candidate(api, candidate, ref, workflow):
+            repo = api("GET", "")
+            if ref != "refs/heads/" + repo["default_branch"] or workflow != candidate:
+                raise ValueError("Dispatch workflow and candidate must be the same default-branch commit")
+            if api("GET", "/commits/" + candidate).get("sha") != candidate:
+                raise ValueError("Candidate did not resolve exactly")
+
+
+        def publish(api, *, tag, candidate, notes, generated, archive, expected_digest):
+            payload = archive.read_bytes()
+            digest = hashlib.sha256(payload).hexdigest()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_digest) or digest != expected_digest:
+                raise ValueError("Artifact bytes differ from read-only build output")
+            check_conflicts(api, tag)
+            # Retained job logs identify intent before the first write. Never retry a
+            # write automatically: inspect the remote and stop on an unknown outcome.
+            print(json.dumps({"tag": tag, "candidate": candidate, "asset": archive.name, "sha256": digest}), flush=True)
+            body = {"tag_name": tag, "target_commitish": candidate, "name": tag,
+                    "body": notes, "draft": True, "generate_release_notes": generated}
+            try:
+                release = api("POST", "/releases", body)
+            except Unknown:
+                releases = api("GET", "/releases?per_page=100")
+                matches = [r for r in releases if r.get("tag_name") == tag]
+                print(json.dumps({"inspection": matches}), flush=True)
+                raise Unknown("Release creation response uncertain; inspect retained state before another write")
+            release_id = release["id"]
+            if release.get("tag_name") != tag or not release.get("draft") or release.get("target_commitish") != candidate:
+                raise Unknown("Created release identity mismatch; inspect before another write")
+            try:
+                asset = api("POST", f"/releases/{release_id}/assets?name=" + urllib.parse.quote(archive.name), payload, upload=True)
+            except Unknown:
+                print(json.dumps({"inspection": api("GET", f"/releases/{release_id}/assets")}), flush=True)
+                raise Unknown("Asset upload uncertain; inspect before another write")
+            # GitHub's server digest verifies received bytes without following a
+            # redirect carrying write credentials or executing/extracting archive data.
+            if asset.get("name") != archive.name or asset.get("size") != len(payload) or asset.get("digest") != "sha256:" + digest:
+                raise Unknown("Uploaded asset identity unverified; inspect before another write")
+            try:
+                result = api("PATCH", f"/releases/{release_id}", {"draft": False})
+            except Unknown:
+                result = api("GET", f"/releases/{release_id}")
+                if result.get("draft") is not False or result.get("tag_name") != tag:
+                    raise Unknown("Publication remains unknown; stop and inspect")
+            remote_tag = api("GET", "/git/ref/tags/" + urllib.parse.quote(tag, safe=""))
+            if (result.get("draft") is not False or result.get("tag_name") != tag
+                    or remote_tag.get("object", {}).get("sha") != candidate):
+                raise Unknown("Published release/tag identity is unverified")
+            print(json.dumps({"release": result["html_url"], "asset_sha256": digest}), flush=True)
+
+
+        def main():
+            candidate = os.environ["CANDIDATE"]
+            notes = os.environ["NOTES"]
+            generated = os.environ["GENERATED"] == "true"
+            tag = validate_inputs(os.environ["VERSION"], candidate, os.environ["DISPATCH_SHA"], notes, generated)
+            if os.environ["GITHUB_REPOSITORY"] != os.environ["EXPECTED_REPOSITORY"]:
+                raise ValueError("Release destination differs from the selected repository")
+            api = API(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
+            inspect_candidate(api, candidate, os.environ["DISPATCH_REF"], os.environ["WORKFLOW_SHA"])
+            if os.environ["OPERATION"] == "validate":
+                check_conflicts(api, tag)
+            else:
+                publish(api, tag=tag, candidate=candidate, notes=notes, generated=generated,
+                        archive=Path("release/source.tar.gz"), expected_digest=os.environ["ARCHIVE_SHA256"])
+
+
+        if __name__ == "__main__":
+            main()
+        PY
+      env:
+        CANDIDATE: ${{ inputs.candidate }}
+        VERSION: ${{ inputs.version }}
+        NOTES: ${{ inputs.notes }}
+        GENERATED: ${{ inputs.generated_notes }}
+        DISPATCH_SHA: ${{ github.sha }}
+        DISPATCH_REF: ${{ github.ref }}
+        WORKFLOW_SHA: ${{ github.workflow_sha }}
+        GH_TOKEN: ${{ github.token }}
+        EXPECTED_REPOSITORY: kylehughes/ChildrenOfTasks
+        OPERATION: publish
+        ARCHIVE_SHA256: ${{ needs.build.outputs.archive_sha256 }}

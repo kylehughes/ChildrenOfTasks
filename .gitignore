@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/
+__pycache__/
+*.pyc
+*.doccarchive/
+*.xcresult/
+TestResults/
+Documentation/HTML/
+
+# Preserve local research inputs without exporting their archived binaries.
+/Specification/
