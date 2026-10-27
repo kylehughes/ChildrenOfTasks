@@ -1,6 +1,6 @@
 # Maintenance
 
-Run verification from the repository root with Xcode 27.1 selected. The workflows target the private `kylehughes/ChildrenOfTasks` repository. The [DocC site](https://kylehughes.github.io/ChildrenOfTasks/) is public; releases require a separate publication decision.
+Run verification from the repository root with Xcode 27.1 selected. The workflows target `kylehughes/ChildrenOfTasks` and publish [DocC documentation](https://kylehughes.github.io/ChildrenOfTasks/) through GitHub Pages.
 
 ## Runner and local tools
 
@@ -20,7 +20,11 @@ xcrun --find docc
 xcrun simctl list runtimes
 ```
 
-The library declares iOS 16.4 and macOS 13. The available SDK, host OS, and Simulator runtime are different support facts. The Swift Testing Simulator executable has an iOS 17 minimum; its iOS 27 run does not establish iOS 16.4 runtime behavior. See [compatibility](../README.md#compatibility) for remaining acceptance limits.
+## Runtime validation
+
+The library declares iOS 16.4 and macOS 13 deployment targets. Current validation uses Apple Swift 6.4 (`swiftlang-6.4.0.34.1`) from Xcode 27.1. Checks cover iOS 16.4 compilation and linking, current macOS execution, and iOS 27 simulator execution. The available SDK, host OS, and simulator runtime are separate support facts.
+
+Actual iOS 16.4 execution is still required before release acceptance. Newer simulator tests do not exercise that oldest-runtime path. The Swift Testing simulator host requires iOS 17, so the 16.4 check needs a compatible minimal host or device. Execution on macOS 13 has not been established.
 
 ## Verification
 

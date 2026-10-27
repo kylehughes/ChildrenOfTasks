@@ -5,11 +5,11 @@
 [![Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
 [![Test](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml/badge.svg)](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml)
 
-ChildrenOfTasks lets one function start work that other functions can await. Pass the pending results as arguments, return them from helpers, or store them together in a struct. One enclosing `withChildren` scope owns the work and waits for every child to finish before returning.
+ChildrenOfTasks lets helpers return pending work while the caller keeps structured ownership of its lifetime. Pass typed result handles between functions, and let one enclosing `withChildren` scope cancel and wait for every child before returning—even when a helper throws.
 
 ## Quick start
 
-A profile screen needs a user's profile and recent posts. Its header and feed both use the profile, but only the feed needs the posts. Start both requests together, then let each section's helper read the results it needs.
+A profile screen needs a user's profile for its header and recent posts for its feed. A loading helper starts both requests and returns immediately. Separate presentation helpers await the data they need, while `loadProfileScreen` owns the requests until they finish.
 
 The app provides `ProfileClient`, `Profile`, and `Post` as `Sendable` types, along with `ProfileScreen` and `PostRow` presentation models. Networking and view code are omitted.
 
@@ -20,7 +20,7 @@ func loadProfileScreen(userID: String, client: ProfileClient) async throws -> Pr
     try await withChildren { (children: borrowing Children) in
         let load = startProfileLoad(userID: userID, client: client, in: children)
         let header = try await makeHeader(from: load.profile)
-        let feed = try await makeFeed(from: load)
+        let feed = try await makeFeed(from: load.posts)
 
         return ProfileScreen(header: header, feed: feed)
     }
@@ -47,7 +47,7 @@ func startProfileLoad(
 }
 ```
 
-The header can be prepared while the posts are still loading. The feed reads the same profile handle, so it gets the same result without making another profile request:
+The header can be prepared while posts are still loading. Neither presentation helper needs the client or responsibility for ending the requests:
 
 ```swift
 func makeHeader(from profile: Child<Profile, any Error>) async throws -> String {
@@ -56,29 +56,92 @@ func makeHeader(from profile: Child<Profile, any Error>) async throws -> String 
     return profile.displayName
 }
 
-func makeFeed(from load: ProfileLoad) async throws -> [PostRow] {
-    let profile = try await load.profile.value()
-    let posts = try await load.posts.value()
+func makeFeed(from posts: Child<[Post], any Error>) async throws -> [PostRow] {
+    let posts = try await posts.value()
 
-    return posts.map { PostRow(author: profile.displayName, text: $0.text) }
+    return posts.map { PostRow(text: $0.text) }
 }
 ```
 
-The requests belong to `loadProfileScreen`'s scope even though another function started them. If building a section throws, the error leaves the scope body, which cancels any remaining work and waits for it to finish before throwing. The helpers pass results around without taking over cleanup.
+If the profile request fails while posts are still loading, the error leaves the scope body. `withChildren` requests cancellation of the posts request and waits for it to finish before throwing the original error. Canceling the task that called `loadProfileScreen` also reaches both requests through native structured cancellation.
 
-For sequential work, use direct `await`. For a fixed set of operations started and consumed in one function, `async let` is often enough. A native task group suits processing homogeneous results in completion order. Use an explicitly owned unstructured task when work needs to outlive its caller.
+The loading helper can return unfinished work without making its caller write a cleanup path for each result.
+
+## Using native Swift
+
+When a fixed set of operations starts and finishes in one function, `async let` already provides structured lifetime management. Use it when the work can stay local. A native task group is useful for a dynamic set of operations, including processing results of one type in completion order.
+
+Returning pending results from a helper is also possible with `Task` handles. Those tasks are unstructured: the caller must forward cancellation and cancel and await each task on every exit to keep their work within the call's lifetime.
+
+<details>
+<summary>The same profile-loading flow with Task handles</summary>
+
+This version uses asynchronous `defer`, available in Swift 6.4. The app-provided types are the same as above.
+
+```swift
+func loadProfileScreen(userID: String, client: ProfileClient) async throws -> ProfileScreen {
+    let load = startProfileLoad(userID: userID, client: client)
+
+    return try await withTaskCancellationHandler {
+        defer {
+            load.profile.cancel()
+            load.posts.cancel()
+            _ = await load.profile.result
+            _ = await load.posts.result
+        }
+
+        let header = try await makeHeader(from: load.profile)
+        let feed = try await makeFeed(from: load.posts)
+
+        return ProfileScreen(header: header, feed: feed)
+    } onCancel: {
+        load.profile.cancel()
+        load.posts.cancel()
+    }
+}
+
+struct ProfileLoad: Sendable {
+    let profile: Task<Profile, any Error>
+    let posts: Task<[Post], any Error>
+}
+
+func startProfileLoad(userID: String, client: ProfileClient) -> ProfileLoad {
+    ProfileLoad(
+        profile: Task { try await client.fetchProfile(for: userID) },
+        posts: Task { try await client.fetchPosts(for: userID) }
+    )
+}
+
+func makeHeader(from profile: Task<Profile, any Error>) async throws -> String {
+    let profile = try await profile.value
+
+    return profile.displayName
+}
+
+func makeFeed(from posts: Task<[Post], any Error>) async throws -> [PostRow] {
+    let posts = try await posts.value
+
+    return posts.map { PostRow(text: $0.text) }
+}
+```
+
+The cancellation handler forwards cancellation while the body is running. The `defer` requests cancellation on every exit and waits for both tasks. Awaiting their nonthrowing `result` properties ensures a cleanup error cannot skip the other task or replace the body's outcome.
+
+</details>
+
+ChildrenOfTasks keeps that cancellation and joining in `withChildren`, using native child tasks. Helpers can start work or consume handles without taking over its lifetime. Both approaches rely on cooperative cancellation: an operation that ignores cancellation must still finish before the enclosing call can return.
 
 ## Installation
 
-The package is available in the private [kylehughes/ChildrenOfTasks](https://github.com/kylehughes/ChildrenOfTasks) repository and has no tagged release. Add a checkout as a local package dependency in Xcode, select the **ChildrenOfTasks** product, and import `ChildrenOfTasks`.
+In Xcode, add `https://github.com/kylehughes/ChildrenOfTasks` with the **Branch** dependency rule set to `main`, then select the **ChildrenOfTasks** product.
 
-For a neighboring Swift package, replace the path below with the actual checkout path. The explicit dependency name keeps the product reference stable even when the checkout folder has another name:
+In `Package.swift`, add the dependency:
 
 ```swift
-.package(name: "ChildrenOfTasks", path: "../ChildrenOfTasks")
+.package(url: "https://github.com/kylehughes/ChildrenOfTasks.git", branch: "main")
 ```
 
-Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies.
+Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies, then `import ChildrenOfTasks`. The package has no external dependencies.
 
 ## Working with handles
 
@@ -111,10 +174,9 @@ The body inherits the caller's actor isolation and may return actor-local, non-S
 
 ## Compatibility
 
-- Swift tools/compiler 6.4 and Swift 6 language mode, with complete strict concurrency checking.
-- Library deployment targets: iOS 16.4 and macOS 13. The module uses the normal nonisolated default, without upcoming or experimental feature flags.
-- Current validation uses Apple Swift 6.4 (`swiftlang-6.4.0.34.1`) from Xcode 27.1. iOS 16.4 compilation and linking, current macOS execution, and iOS 27 simulator execution are separate checks.
-- **Actual iOS 16.4 execution is still required before release acceptance.** Newer simulator tests do not exercise that oldest-runtime path. The Swift Testing simulator host itself requires iOS 17; a compatible minimal host or device is needed for the 16.4 check. Execution on macOS 13 has not been established.
+- Requires Swift 6.4 or later. The package uses Swift 6 language mode and complete strict concurrency checking.
+- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation](Documentation/Maintenance.md#runtime-validation) for the environments exercised.
+- Uses nonisolated default actor isolation without upcoming or experimental feature flags. It can be consumed by apps that use MainActor default isolation.
 
 Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
 
@@ -122,7 +184,7 @@ Swift 6.4 has known compiler crashes for some forbidden captures when the scope 
 
 Each scope creates group storage; each child adds a native task and actor-backed result cell. Suspended readers use continuations, and handles retain completed outcomes. Task-group completion records can accumulate until scope exit, so use a scope for a bounded operation rather than an indefinitely running spawning service.
 
-There is no per-child cancellation, priority API, timeout, retry, stream, or result-combinator family. Waiting on a handle does not promise priority donation from an unrelated reader. No allocation-free or `async let` performance-equivalence claim is made. See [measured costs](Documentation/Performance.md).
+The API covers starting children and reading their results. It does not include per-child cancellation, priorities, timeouts, retries, streams, or result combinators. Waiting on a handle does not promise priority donation from an unrelated reader. See [measured costs](Documentation/Performance.md) for allocation and timing observations.
 
 ## Documentation and maintenance
 
@@ -138,15 +200,13 @@ swift format lint --strict --recursive Package.swift Sources Tests Integration B
 
 [CI](.github/workflows/ci.yml) also checks compiler contracts, a public consumer, DocC, and iOS simulator execution. See [Actions](https://github.com/kylehughes/ChildrenOfTasks/actions) for results and [Maintenance](Documentation/Maintenance.md) for the full verification commands, local documentation preview, and publishing workflow.
 
-The DocC site is published on GitHub Pages. DocC deployments and package releases are manually dispatched; no package release has been published.
-
 ## Contributions
 
 ChildrenOfTasks is not accepting source contributions at this time. Bug reports will be considered.
 
 ## Provenance
 
-ChildrenOfTasks implements the supplied specification using the Swift Package Factory workflow. Implementation, tests, and repository preparation were performed with coding agents. Separate agent contexts provide review and public-consumer exercises; those checks do not establish human review.
+ChildrenOfTasks was developed and reviewed with coding agents using the Swift Package Factory workflow.
 
 ## Author
 
