@@ -1,8 +1,9 @@
 # ChildrenOfTasks
 
-[![Provenance: Software Factory](https://img.shields.io/badge/Provenance-Software%20Factory-blue)](#provenance)
-[![Swift tools: 6.4](https://img.shields.io/badge/Swift%20tools-6.4-orange)](Package.swift)
-[![iOS deployment: 16.4+](https://img.shields.io/badge/iOS%20deployment-16.4%2B-blue)](#compatibility)
+[![Provenance: Software Factory](https://img.shields.io/badge/Provenance-Software_Factory-007AFF)](#provenance)
+[![Platform Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
+[![Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
+[![Test](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml/badge.svg)](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml)
 
 ChildrenOfTasks lets you pass pending work through ordinary Swift helpers while one enclosing scope owns cancellation and completion. Each `Child` preserves its operation's result and failure types.
 
