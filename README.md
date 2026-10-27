@@ -133,6 +133,8 @@ Both versions rely on cooperative cancellation: an operation that ignores cancel
 
 ## Installation
 
+Use a Swift 6.4 or later toolchain.
+
 In Xcode, add `https://github.com/kylehughes/ChildrenOfTasks` with the **Up to Next Major Version** dependency rule starting at `1.0.0`, then select the **ChildrenOfTasks** product.
 
 In `Package.swift`, add the dependency:
@@ -146,7 +148,7 @@ Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consu
 ### Compatibility
 
 - Requires Swift 6.4 or later. The package uses Swift 6 language mode and complete strict concurrency checking.
-- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation](Documentation/Maintenance.md#runtime-validation) for the environments exercised.
+- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation guidance](Documentation/Maintenance.md#runtime-validation) for checking behavior on those runtimes.
 - Uses nonisolated default actor isolation without upcoming or experimental feature flags. It can be consumed by apps that use MainActor default isolation.
 
 Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
