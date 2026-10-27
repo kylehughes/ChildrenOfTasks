@@ -46,7 +46,7 @@ func render(
 
 ## Installation
 
-This package is prepared locally and has no published release. Add the checkout as a local package dependency in Xcode, select the **ChildrenOfTasks** product, and import `ChildrenOfTasks`.
+The package is available in the private [kylehughes/ChildrenOfTasks](https://github.com/kylehughes/ChildrenOfTasks) repository and has no tagged release. Add a checkout as a local package dependency in Xcode, select the **ChildrenOfTasks** product, and import `ChildrenOfTasks`.
 
 For a neighboring Swift package, replace the path below with the actual checkout path. The explicit dependency name keeps the product reference stable even when the checkout folder has another name:
 
@@ -54,7 +54,7 @@ For a neighboring Swift package, replace the path below with the actual checkout
 .package(name: "ChildrenOfTasks", path: "../ChildrenOfTasks")
 ```
 
-Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies. The intended remote repository is `kylehughes/ChildrenOfTasks`; remote installation instructions will follow publication.
+Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consuming target's dependencies.
 
 ## Working with handles
 
@@ -113,7 +113,7 @@ python3 Scripts/docs.py --output .build/site
 
 The static site uses `/ChildrenOfTasks/documentation/childrenoftasks/` as its entry point. Serve `.build/site` mounted at `/ChildrenOfTasks/` when previewing its assets and deep links. Rebuild into a fresh output directory; the docs command refuses to overwrite an existing one.
 
-[CI](.github/workflows/ci.yml) runs host tests, compiler checks, a public consumer, formatting, DocC, and an owned iOS simulator, then requires every selected job to succeed. The workflows require a provisioned `xcode-27` runner with Xcode 27.1.0 and the iOS 27 runtime; hosted availability and execution are pending. Run that simulator check locally with:
+[CI](.github/workflows/ci.yml) runs host tests, compiler checks, a public consumer, formatting, DocC, and an owned iOS simulator, then requires every selected job to succeed. The workflows use GitHub's `xcode-27` arm64 image, select Xcode 27.1, and require the iOS 27.0 runtime. See [Actions](https://github.com/kylehughes/ChildrenOfTasks/actions) for results on each commit. Run that simulator check locally with:
 
 ```sh
 python3 Scripts/Simulator/simulator.py \
@@ -122,7 +122,7 @@ python3 Scripts/Simulator/simulator.py \
     --device-type com.apple.CoreSimulator.SimDeviceType.iPhone-17
 ```
 
-[Documentation deployment](.github/workflows/documentation.yml) and [release](.github/workflows/release.yml) are manually dispatched. They separate read-only builds from artifact-only publishing. Release requires an exact candidate SHA, a version, and supplied notes by default; generated notes require an explicit choice. No repository, hosted site, or release has been published by this preparation. See [delivery maintenance](Documentation/Maintenance.md) before configuring the runner or dispatching either publisher.
+[Documentation deployment](.github/workflows/documentation.yml) and [release](.github/workflows/release.yml) are manually dispatched. They separate read-only builds from artifact-only publishing. Release requires an exact candidate SHA, a version, and supplied notes by default; generated notes require an explicit choice. No hosted documentation site or release has been published. See [delivery maintenance](Documentation/Maintenance.md) before dispatching either publisher.
 
 ## Contributions
 

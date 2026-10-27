@@ -1,10 +1,12 @@
 # Maintenance
 
-Run verification from the repository root with Xcode 27.1.0 selected. The workflows are prepared for `kylehughes/ChildrenOfTasks`; runner provisioning, repository settings, hosted checks, and publication remain separate work.
+Run verification from the repository root with Xcode 27.1 selected. The workflows target the private `kylehughes/ChildrenOfTasks` repository. Pages and releases require separate publication decisions.
 
 ## Runner and local tools
 
-The custom `xcode-27` runner label must resolve to a trusted arm64 macOS runner with `/Applications/Xcode-27.1.0.app`, Python 3, and the installed iOS 27.0 Simulator runtime. The workflows select that Xcode and reject a compiler other than Swift 6.4. The simulator helper also requires the `com.apple.CoreSimulator.SimDeviceType.iPhone-17` device type. `.github/actionlint.yaml` declares the label for linting; it does not provision a runner.
+The workflows use GitHub's hosted `xcode-27` arm64 image and select `/Applications/Xcode_27.1.app/Contents/Developer`. The [observed image manifest](https://github.com/actions/runner-images/blob/xcode-27-arm64/20261023.0307/images/macos/xcode-27-arm64-Readme.md) lists Xcode 27.1 build 27A9275 at that path, Python 3, and the iOS 27.0 Simulator runtime. Each build job prints the selected Xcode version and rejects a compiler other than Swift 6.4. Local Xcode application filenames can differ; select the local installation before running the same checks.
+
+The simulator helper also requires the `com.apple.CoreSimulator.SimDeviceType.iPhone-17` device type. `.github/actionlint.yaml` declares the hosted runner label for the installed linter.
 
 Use an isolated runner for pull requests because workflow jobs execute candidate code. Keep publishing credentials out of the candidate build environment. Checkout disables persisted Git credentials, and candidate jobs have read-only repository permissions. No cache is configured.
 
