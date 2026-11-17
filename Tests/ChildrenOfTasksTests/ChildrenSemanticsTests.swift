@@ -288,6 +288,37 @@ struct ChildrenSemanticsTests {
         #expect(await cleaned.isSignaled)
     }
 
+    @Test func droppingHandleKeepsProducerRunningUntilScopeExitCancelsAndJoins() async {
+        let inspect = TestEvent()
+        let inspected = TestEvent()
+        let canceled = TestEvent()
+        let cleaned = TestEvent()
+        await withChildren { (children: borrowing Children) in
+            _ = children.start {
+                await withTaskCancellationHandler {
+                    #expect(await inspect.wait())
+                    #expect(!Task.isCancelled)
+                    await inspected.signal()
+                    #expect(await canceled.wait())
+                    #expect(Task.isCancelled)
+                    await cleaned.signal()
+
+                } onCancel: {
+
+                    Task {
+                        await canceled.signal()
+                    }
+                }
+            }
+
+            // Inspect only after the handle is discarded, and keep the body open for the observation.
+            await inspect.signal()
+            #expect(await inspected.wait())
+        }
+
+        #expect(await cleaned.isSignaled)
+    }
+
     @Test func noncooperativeChildAndDroppedHandleRemainOwnedUntilReleased() async {
         let entered = TestEvent()
         let canceled = TestEvent()
