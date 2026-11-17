@@ -62,7 +62,7 @@ The instrumentation measures live allocator state and payload ownership, but it 
 
 The selected output directory contains `costs.json`, per-case raw JSON samples, `/usr/bin/time -l` output, optimized modules, and the executable. The aggregate includes complete compiler/run commands, environment details, source SHA-256 values, and artifact SHA-256 values. The tables use the final source run; earlier development runs are excluded. Repeating the command above creates the same evidence layout at the chosen destination.
 
-Production input identities for the recorded run:
+Production input identities for the recorded run. They match the sources at commit `127c91a`; later changes to `Children.swift` are limited to documentation comments, so its current hash differs.
 
 | Source | SHA-256 |
 | --- | --- |
