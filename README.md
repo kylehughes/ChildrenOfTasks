@@ -216,7 +216,7 @@ ChildrenOfTasks is not accepting source contributions at this time. Bug reports 
 
 ChildrenOfTasks was developed and reviewed with coding agents using the Swift Package Factory workflow.
 
-## Author
+## "Author"
 
 [Kyle Hughes](https://kylehugh.es)
 
