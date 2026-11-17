@@ -5,13 +5,13 @@
 [![Swift Versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fkylehughes%2FChildrenOfTasks%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/kylehughes/ChildrenOfTasks)
 [![Test](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml/badge.svg)](https://github.com/kylehughes/ChildrenOfTasks/actions/workflows/ci.yml)
 
-ChildrenOfTasks lets helpers return unfinished work while one enclosing scope handles cancellation and cleanup. Pass typed `Child` handles between functions; every child finishes before `withChildren` returns.
+ChildrenOfTasks lets helpers start concurrent work and pass typed `Child` handles to the functions that need its results. The enclosing `withChildren` scope requests cancellation of remaining work and waits for every child before returning or throwing.
 
-`Task` handles also let you pass pending results between functions. Tasks created with `Task { … }` are unstructured, though: keeping them within the caller's lifetime requires explicit cancellation forwarding and a cleanup path that cancels and awaits every task on exit. `withChildren` takes care of those responsibilities for native child tasks, including when its body throws.
+Matching this cancellation and cleanup behavior with raw `Task` handles requires cancellation forwarding and exit cleanup for every task. A `Child` only exposes its result; the scope owns its producer's lifetime. Helpers can add work without adding cleanup responsibilities to their callers.
 
 ## Quick start
 
-A profile screen needs a user's profile for its header and recent posts for its feed. A loading helper starts both requests, and separate presentation helpers await the data they need. If the profile request fails, `loadProfileScreen` still needs to cancel and wait for the posts request before throwing.
+A profile screen needs a user's profile for its header and recent posts for its feed. A loading helper starts both requests, and separate presentation helpers await the data they need. If the profile request fails, `loadProfileScreen` still needs to request cancellation of the posts request and wait for it before throwing.
 
 The app provides `ProfileClient`, `Profile`, and `Post` as `Sendable` types, along with `ProfileScreen` and `PostRow` presentation models. Networking and view code are omitted.
 
@@ -65,7 +65,7 @@ func makeFeed(from posts: Child<[Post], any Error>) async throws -> [PostRow] {
 }
 ```
 
-`makeHeader` and `makeFeed` receive access to results, with no authority to cancel the requests. If either helper throws, `withChildren` cancels remaining work, waits for it to finish, then throws that error. The caller does not need a separate cleanup path for each request.
+`makeHeader` and `makeFeed` can read results but cannot cancel the requests. If either throws, `withChildren` requests cancellation of remaining work, waits for it to finish, then throws that error.
 
 ### Using native Swift
 
@@ -148,7 +148,7 @@ Add `.product(name: "ChildrenOfTasks", package: "ChildrenOfTasks")` to the consu
 ### Compatibility
 
 - Requires Swift 6.4 or later. The package uses Swift 6 language mode and complete strict concurrency checking.
-- Declares deployment targets of iOS 16.4 and macOS 13. See [runtime validation guidance](Documentation/Maintenance.md#runtime-validation) for checking behavior on those runtimes.
+- Declares deployment targets of iOS 16.4 and macOS 13. Tests run on newer runtimes; execution on these minimum versions is unverified. See [runtime validation](Documentation/Maintenance.md#runtime-validation).
 - Uses nonisolated default actor isolation without upcoming or experimental feature flags. It can be consumed by apps that use MainActor default isolation.
 
 Swift 6.4 has known compiler crashes for some forbidden captures when the scope parameter is inferred. Use the explicit `(children: borrowing Children)` spelling shown above. The [compiler fixtures](Tests/CompilerFixtures) retain those failures as known diagnostic defects, separately from expected rejection checks.
@@ -161,34 +161,34 @@ Swift 6.4 has known compiler crashes for some forbidden captures when the scope 
 
 `start` submits an operation to a native task group without waiting for `value()` to be called. Swift controls when it executes; calling `start` does not guarantee that execution has begun before the call returns. Each call to `start` creates a separate operation, even if you supply the same function again.
 
-`Child<Value, Failure>` is copyable and `Sendable`. Pass or store a handle, or share it with concurrent readers. Copies observe the same stored outcome without running the operation again. A handle may outlive its scope, but the operation finishes before `withChildren` returns. Returning a handle from a borrowing helper, as above, lets work continue in the caller's scope; returning it from `withChildren` delivers an already-completed outcome.
+`Child<Value, Failure>` is copyable and `Sendable`. Pass or store a handle, or share it across concurrent readers. Copies observe the same stored outcome without running the operation again. A handle may outlive its scope, but its producer finishes before `withChildren` returns. Returning a handle from a borrowing helper, as above, lets work continue in the caller's scope; returning it from `withChildren` delivers an already-completed outcome.
 
 The example's client methods use ordinary `throws`, so their handles use `any Error`. If the profile operation instead declares `throws(ProfileError)`, its handle is `Child<Profile, ProfileError>`. If it cannot throw, its handle is `Child<Profile, Never>` and `value()` needs no `try`. Helpers that combine unrelated error types choose their own error vocabulary or use ordinary `throws`.
 
 ### Completion and cancellation
 
-The body's outcome determines the scope's outcome. When the body returns or throws, `withChildren` cancels remaining work and joins every child before returning that value or error. A caught or ignored child failure does not fail the scope or cancel siblings.
+The body's outcome determines the scope's outcome. When the body returns or throws, `withChildren` requests cancellation of remaining work and joins every child before returning that value or error. A caught or ignored child failure does not fail the scope or cancel siblings.
 
 | Situation | Behavior |
 | --- | --- |
 | Start after cancellation | The operation still executes with cancellation requested and publishes its own outcome. |
 | Parent cancellation | Native structured cancellation reaches children; the body handles cancellation itself. |
 | Canceled reader | `value()` keeps waiting for the producer's stored outcome. |
-| Dropped handle | Its producer remains owned by the scope. |
+| Dropped handle | Dropping it does not cancel its producer. |
 | Success after cancellation | The success is preserved. |
 | Child ignores cancellation | Scope exit waits until that child finishes. |
 
-Cancellation is cooperative. A body or child that never finishes can prevent the scope from returning. A published result means the supplied operation has returned or thrown; only scope exit establishes that every wrapping task has been joined.
+Cancellation is cooperative. A body or child that never finishes can prevent the scope from returning. A published result means the supplied operation has returned or thrown; only scope exit establishes that every child task has been joined.
 
 ### Actor isolation
 
-Child values must be copyable and `Sendable`; reference-valued results retain their normal reference semantics. Return data models from child operations and create or update UI objects on the appropriate actor.
+Child values must be copyable and `Sendable`; reference-valued results keep their ordinary reference semantics. Return data models from child operations and create or update UI objects on the appropriate actor.
 
 The body inherits the caller's actor isolation and may return actor-local, non-Sendable state. Child operations cross a task boundary and accept escaping `@Sendable` closures. Explicit actor-isolated operations retain their isolation; arbitrary child closure literals are not promised to inherit the caller's actor context.
 
 ### Costs and limits
 
-Each scope creates group storage; each child adds a native task and actor-backed result cell. Suspended readers use continuations, and handles retain completed outcomes. Task-group completion records can accumulate until scope exit, so use a scope for a bounded operation rather than an indefinitely running spawning service.
+Each scope allocates group storage; each child adds a native task and an actor-backed result cell. Suspended readers use continuations, and handles retain completed outcomes. Task-group completion records can accumulate until scope exit, so use a scope for a bounded operation rather than an indefinitely running spawning service.
 
 The API covers starting children and reading their results. It does not include per-child cancellation, priorities, timeouts, retries, streams, or result combinators. Waiting on a handle does not promise priority donation from an unrelated reader. See [measured costs](Documentation/Performance.md) for allocation and timing observations.
 

@@ -89,10 +89,10 @@ public struct Children: ~Copyable {
 
 /// Runs a body whose child operations finish before the call returns.
 ///
-/// On every ordinary return or thrown error from `body`, the scope requests
-/// cancellation of remaining work, joins all children, then delivers the body's
-/// original outcome. Ignored child errors cannot replace it. Returning a handle
-/// from the body therefore delivers an already-completed outcome to the caller.
+/// When `body` returns or throws, the scope requests cancellation of remaining
+/// work, joins all children, then delivers the body's original outcome. A caught
+/// or ignored child error cannot replace it. Returning a handle from the body
+/// therefore delivers an already-completed outcome to the caller.
 ///
 /// Parent cancellation reaches children through native structured concurrency.
 /// Cancellation is cooperative: it does not force the body or children to return.

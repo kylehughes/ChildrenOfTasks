@@ -1,6 +1,6 @@
 # Measured costs
 
-ChildrenOfTasks' cost fixture measures bounded scopes against the archived handwritten native-task-group plus typed-actor-cell prototype. Both provide one execution per start, stored typed outcomes, repeated reads, and cancellation plus joining on scope exit. The control is copied into `Benchmarks/Control.swift`; only declaration names, documentation, and formatting differ from the archived implementation. This is a nearby equivalent implementation, not an `async let` comparison.
+ChildrenOfTasks' cost fixture measures bounded scopes against the archived handwritten native-task-group plus typed-actor-cell prototype. Both provide one execution per start, stored typed outcomes, repeated reads, and cancellation plus joining on scope exit. The control is copied into `Benchmarks/Control.swift` and compiled as the `Baseline` module; only declaration names, documentation, and formatting differ from the archived implementation. This is a nearby equivalent implementation, not an `async let` comparison.
 
 Run from the repository root with Xcode's Swift compiler and Python 3:
 

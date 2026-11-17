@@ -4,7 +4,7 @@ Pass pending results through helpers while one structured scope owns their execu
 
 ## Overview
 
-Open a scope with ``withChildren(isolation:_:)``, start operations through the borrowed ``Children`` capability, and observe typed outcomes through ``Child/value()``. Handles may be shared or returned. All producers finish before the enclosing scope returns.
+Start work through the borrowed ``Children`` capability inside ``withChildren(isolation:_:)``. Pass the returned ``Child`` handles to helpers that await ``Child/value()``. Readers receive access to results; the scope owns cancellation and cleanup.
 
 ```swift
 import ChildrenOfTasks
@@ -29,11 +29,13 @@ func render(_ text: Child<String, Never>, title: Child<String, Never>) async -> 
 }
 ```
 
-The application supplies the loading operations. A typed-throwing operation produces a handle with its exact failure type; observing a nonthrowing operation needs no `try`.
+The application supplies the loading operations. A typed-throwing operation produces a handle with its exact failure type; reading a nonthrowing operation needs no `try`.
 
-On body return or error, the scope requests cancellation and waits for all children before delivering the body's original outcome. Ignoring a child error does not fail the scope. Canceling a reader does not interrupt its wait. Cancellation is cooperative, so an unfinished child can keep the scope open.
+When the body returns or throws, the scope requests cancellation of remaining work and waits for all children before delivering the body's original outcome. A caught or ignored child error does not fail the scope. Canceling a reader does not interrupt its wait. Cancellation is cooperative, so an unfinished child can keep the scope open.
 
-The library targets iOS 16.4 and macOS 13 with Swift 6.4. Actual iOS 16.4 runtime validation remains required before release acceptance. The tested compiler has known diagnostic crashes for inferred invalid captures; spell scope parameters explicitly as borrowed, as shown above.
+The library targets iOS 16.4 and macOS 13 with Swift 6.4. Tests run on newer runtimes; execution on these minimum versions is unverified.
+
+Swift 6.4 has known compiler crashes for inferred invalid captures; spell scope parameters explicitly as borrowed, as shown above.
 
 ## Topics
 

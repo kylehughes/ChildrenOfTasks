@@ -46,7 +46,7 @@ Also run optimized tests with `python3 Scripts/check-tests.py --configuration re
 
 The Simulator helper creates one owned device, executes the unchanged package graph, and deletes that device after success or failure. It uses standalone execution without booting the device. Raw versioned discovery/execution streams, expected selections, destination and SDK facts, command logs, and cleanup receipts remain in `.build/simulator-*`. A failed or ambiguous creation response requires inspection of `creation-intent.json` and `commands.jsonl` before another attempt. `--device EXACT_UDID` instead preserves an existing device.
 
-[CI](../.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. Its host job checks compilation, individual tests, compiler fixtures, public consumption, formatting, and DocC. A second job checks Simulator execution. Both upload test observations even after failure. The stable `Required checks` gate always runs and accepts only successful results from both jobs. Repository rules requiring that check must be configured separately.
+[CI](../.github/workflows/ci.yml) runs on pushes, pull requests, and manual dispatch. Its host job checks compilation, individual tests, compiler fixtures, public consumption, formatting, and DocC. A second job checks Simulator execution. Both upload test observations even after failure. The `Required checks` gate job always runs and succeeds only when both jobs succeed. Repository rules requiring that check must be configured separately.
 
 Candidate jobs have 30-minute bounds, individual commands generally have 15-minute bounds, and helper subprocesses have their own bounds. These are initial limits; hosted duration and cost have not been measured. Revisit them after observing real runs. Superseded CI runs are canceled; release runs are serialized without canceling earlier runs.
 
@@ -77,7 +77,7 @@ The dispatch inputs are:
 | Input | Value |
 | --- | --- |
 | `candidate` | The exact lowercase 40-character SHA of the default-branch dispatch commit. It must also match the workflow SHA. |
-| `version` | A semantic version without `v`, such as `1.2.3`; the tag becomes `v1.2.3`. No version is selected by this preparation. |
+| `version` | A semantic version without `v`, such as `1.2.3`; the tag becomes `v1.2.3`. |
 | `notes` | Supplied release notes; required unless generated notes are explicitly selected. |
 | `generated_notes` | Defaults to `false`. Set `true` only when generated notes are intended. |
 | `publish` | Defaults to `false`. Leave false for validation and archive preparation; true requests publication. |

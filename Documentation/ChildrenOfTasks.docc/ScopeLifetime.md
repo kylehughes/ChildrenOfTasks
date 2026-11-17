@@ -12,13 +12,13 @@ The borrowing boundary matters: an `inout` capability could allow two nested sco
 
 Each child captures its operation's typed outcome in `Result<Value, Failure>` and publishes it through an actor. The actor moves once from pending readers to a resolved outcome. Registration and publication are serialized, so a reader either joins the pending continuation list or receives the stored result.
 
-A handle retains only its result cell, not the spawning authority. Copying it shares that cell. A reference-valued result is an ordinary shared reference, not an immutable snapshot of the referenced object's later state.
+A handle retains only its result cell, not the spawning authority. Copying it shares that cell. A reference-valued result keeps its ordinary reference semantics rather than becoming an immutable snapshot of the referenced object's state.
 
-Publication establishes that the operation has returned or thrown. The wrapping group task can still be finishing publication when a reader resumes. Scope exit supplies the stronger guarantee that all producer tasks have been joined.
+Publication establishes that the operation has returned or thrown. The wrapping child task can still be finishing publication when a reader resumes; only scope exit establishes that all child tasks have been joined.
 
 ## Body outcome and cleanup
 
-The body also materializes its outcome in a typed `Result`. On ordinary body completion, the scope requests cancellation and lets the native group join every child before returning or throwing that original outcome. An ignored child error cannot replace the body's result or error.
+The body also materializes its outcome in a typed `Result`. When the body returns or throws, the scope requests cancellation of remaining work and lets the native group join every child before returning or throwing that original outcome. A caught or ignored child error cannot replace the body's result or error.
 
 Starting work is unconditional, including after cancellation. Skipping a canceled start would leave no lawful outcome for a nonthrowing handle. Operations receive native cancellation state and choose how to respond; a success after cancellation remains a success.
 
